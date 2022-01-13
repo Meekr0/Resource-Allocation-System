@@ -1,5 +1,6 @@
 import java.io.*;
 import java.net.*;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -513,13 +514,16 @@ public class TCPHandler implements Runnable {
 
                 }
                 //IF A NODE WANTS TO ASK ABOUT THE SYSTEM'S RESOURCES
-                else if(messageContents[0].equals("NRTT")) {
+                else if(messageContents[0].equals("NRU")) {
+
+                    System.out.println(line);
 
                     //IF THIS IS NOT THE TOP, PASS IT FURTHER
                     if(!isThisTheTopNode()) {
 
                         Socket nodeUpperSocket = new Socket(upperNodeGateway, upperNodePort);
                         DataOutputStream outToNode = new DataOutputStream(nodeUpperSocket.getOutputStream());
+                        System.err.println(line);
                         outToNode.writeBytes(line + "\n");
                         outToNode.close();
                         nodeUpperSocket.close();
@@ -527,17 +531,163 @@ public class TCPHandler implements Runnable {
                     }
                     else {
 
+                        List<String> allocationsList = new ArrayList<>();
+
                         InetAddress requestNodeAddress = InetAddress.getByName(messageContents[1]);
                         int requestNodePort = Integer.parseInt(messageContents[2]);
                         Map<String, Integer> resourcesToAllocate = stringToMap(messageContents, ":", 3);
-
+                        String resourcesInLine = mapToSingleLine(resourcesToAllocate);
+                        String[] resourceArr = resourcesInLine.split(" ");
 
                         DatagramSocket upperNodeSocket = new DatagramSocket();
                         byte[] messageToNode;
 
                         if(canAllocateResources(resourcesToAllocate, resourcesInAndUnderMe)) {
 
-                            messageToNode = ("NRA " + "I NEED TO BE HERE OR ELSE IT DOESN'T WORK :((").getBytes();
+                            for(String currentResource : resourceArr) {
+
+                                Map<String, Integer> resourceToAllocateWithinMe = new TreeMap<>();
+                                String[] currentResTemp = currentResource.split(":");
+                                String resourceType = currentResTemp[0];
+                                int resourceNum = Integer.parseInt(currentResTemp[1]);
+                                int tempNum = resourceNum;
+
+                                boolean hasAllocatedResourcesThisIteration;
+
+                                while(resourceNum > 0) {
+
+                                    System.out.println(resourceNum + "/" + tempNum);
+
+                                    hasAllocatedResourcesThisIteration = false;
+
+                                    System.out.println("STILL NEEDED: " + resourceType + ":" + resourceNum);
+                                    System.out.println("NOW LOOKING TO ALLOCATE: " + resourceType + ":" + tempNum);
+
+
+                                    //Try to allocate the resource within me first
+                                    resourceToAllocateWithinMe.put(resourceType, tempNum);
+
+                                    for(Map.Entry<String, Integer> e1 : resourceToAllocateWithinMe.entrySet())
+                                        for(Map.Entry<String, Integer> e2 : resources.entrySet())
+                                            System.out.println(e1.getKey() + ":" + e1.getValue() + " - " + e2.getKey() + ":" + e2.getValue());
+
+                                    if (canAllocateResources(resourceToAllocateWithinMe, resources)) {
+
+                                        System.out.println("ALLOCATING " + resourceType + ":" + tempNum + " HERE");
+
+                                        for(Map.Entry<String, Integer> e1 : resourceToAllocateWithinMe.entrySet())
+                                            for (Map.Entry<String, Integer> e2 : resources.entrySet())
+                                                if (e1.getKey().equals(e2.getKey()))
+                                                    e2.setValue(e2.getValue() - e1.getValue());
+
+                                        for(Map.Entry<String, Integer> e1 : resourceToAllocateWithinMe.entrySet())
+                                            for (Map.Entry<String, Integer> e2 : resourcesInAndUnderMe.entrySet())
+                                                if (e1.getKey().equals(e2.getKey()))
+                                                    e2.setValue(e2.getValue() - e1.getValue());
+
+                                        hasAllocatedResourcesThisIteration = true;
+
+                                        String successfulAllocationData = "";
+                                        System.out.println("CREATING " + resourceType + ":" + tempNum + ":" + myGateway + ":" + myPort);
+                                        successfulAllocationData += resourceType + ":" + tempNum + ":" + myGateway + ":" + myPort;
+
+                                        allocationsList.add(successfulAllocationData);
+
+                                        resourceNum -= tempNum;
+
+                                        if(tempNum > resourceNum)
+                                            tempNum = resourceNum;
+
+                                    }
+                                    if(!hasAllocatedResourcesThisIteration) {
+                                    //IF DIDN'T ALLOCATE ANYTHING MYSELF
+                                        for (String nodeUnderMeAddress : nodesUnderMeList) {
+
+                                            //ASK MY NODES
+
+
+                                            String[] nodeAddress = nodeUnderMeAddress.split(":");
+                                            String nodeGateway = nodeAddress[0];
+                                            int nodePort = Integer.parseInt(nodeAddress[1]);
+
+                                            System.out.println("Sending request to " + nodeGateway + ":" + nodePort + " for "
+                                                    + resourceType + ":" + tempNum);
+                                            Socket lowerNodeSocket = new Socket(nodeGateway, nodePort);
+                                            DataOutputStream outToNode = new DataOutputStream(lowerNodeSocket.getOutputStream());
+                                            outToNode.writeBytes("NCR " + resourceType + ":" + tempNum + "\n");
+
+                                            //WAIT FOR ANSWER THROUGH UDP
+                                            DatagramSocket inFromNodeSocket = new DatagramSocket(myPort);
+                                            byte[] receivedData = new byte[32768];
+                                            DatagramPacket receivedPacket = new DatagramPacket(receivedData, receivedData.length);
+
+                                            inFromNodeSocket.receive(receivedPacket);
+                                            String messageFromNode = new String(receivedPacket.getData(), 0, receivedData.length);
+                                            String[] messageFromNodeParts = messageFromNode.split(" ");
+                                            String nodeFlag = messageFromNodeParts[0];
+                                            inFromNodeSocket.close();
+
+                                            System.out.println(nodeFlag);
+
+                                            if (nodeFlag.equals("NRA")) {
+
+                                                hasAllocatedResourcesThisIteration = true;
+                                                String successfulAllocationData = resourceType + ":" + tempNum + ":" +
+                                                        nodeGateway + ":" + nodePort;
+                                                allocationsList.add(successfulAllocationData);
+
+                                                resourceNum -= tempNum;
+
+                                                if (tempNum > resourceNum)
+                                                    tempNum = resourceNum;
+
+                                                for (Map.Entry<String, Integer> e1 : resourceToAllocateWithinMe.entrySet())
+                                                    for (Map.Entry<String, Integer> e2 : resourcesInAndUnderMe.entrySet())
+                                                        if (e1.getKey().equals(e2.getKey()))
+                                                            e2.setValue(e2.getValue() - e1.getValue());
+
+                                            }
+                                            else if (nodeFlag.equals("NRA_R")) {
+
+                                                hasAllocatedResourcesThisIteration = true;
+                                                String successfulAllocationData = resourceType + ":" + tempNum + ":" +
+                                                        messageFromNodeParts[1] + ":" +
+                                                        messageFromNodeParts[2];
+                                                allocationsList.add(successfulAllocationData);
+
+                                                for (Map.Entry<String, Integer> e1 : resourceToAllocateWithinMe.entrySet())
+                                                    for (Map.Entry<String, Integer> e2 : resourcesInAndUnderMe.entrySet())
+                                                        if (e1.getKey().equals(e2.getKey()))
+                                                            e2.setValue(e2.getValue() - e1.getValue());
+
+                                                resourceNum -= tempNum;
+
+                                                if (tempNum > resourceNum)
+                                                    tempNum = resourceNum;
+
+                                            }
+
+                                        }
+
+                                    }
+
+                                    if (!hasAllocatedResourcesThisIteration)
+                                        tempNum--;
+
+                                    if (tempNum < 1)
+                                        tempNum = 1;
+                                    //TODO DEBUG
+
+                                }
+
+                            }
+
+                            String allAllocations = "";
+                            for(String s : allocationsList)
+                                allAllocations += s + " ";
+
+                            //TODO WRITE STH ELSE?
+                            messageToNode = ("NRA " + allAllocations + "BUFOR").getBytes();
                             DatagramPacket outToNodePacket = new DatagramPacket(messageToNode, messageToNode.length,
                                     requestNodeAddress, requestNodePort);
                             upperNodeSocket.send(outToNodePacket);
@@ -594,7 +744,7 @@ public class TCPHandler implements Runnable {
                         }
 
                     }
-                    //IF I DON'T, BUT ME AND MY LOWER NODES HAVE ENOUGH
+                    //IF ME AND MY LOWER NODES HAVE ENOUGH
                     else if(canAllocateResources(resourcesToAllocate, resourcesInAndUnderMe)) {
 
                         writeMessageToClient("ALLOCATED");
@@ -609,18 +759,18 @@ public class TCPHandler implements Runnable {
                             String[] currentResourceValues = currentResource.split(":");
 
                             int currentResourceNum = Integer.parseInt(currentResourceValues[1]);
-                            int temp_int = currentResourceNum;
+                            int tempNum = currentResourceNum;
 
                             while(currentResourceNum > 0) {
 
                                 boolean assignedResourcesThisIteration = false;
 
                                 System.out.println("STILL NEEDED: " + currentResourceValues[0]+":"+currentResourceNum);
-                                System.out.println("NOW LOOKING TO ALLOCATE " + currentResourceValues[0] + ":" + temp_int);
+                                System.out.println("NOW LOOKING TO ALLOCATE " + currentResourceValues[0] + ":" + tempNum);
 
                                 //LOOK AT MY RESOURCES FIRST
-                                System.out.println("TRYING TO ALLOCATE " + currentResourceValues[0]+":" + temp_int + " HERE");
-                                resourcesToAllocateWithinMe.put(currentResourceValues[0], temp_int);
+                                System.out.println("TRYING TO ALLOCATE " + currentResourceValues[0]+":" + tempNum + " HERE");
+                                resourcesToAllocateWithinMe.put(currentResourceValues[0], tempNum);
                                 if(canAllocateResources(resourcesToAllocateWithinMe, resources)) {
 
                                     for(Map.Entry<String, Integer> e1 : resourcesToAllocateWithinMe.entrySet())
@@ -637,9 +787,9 @@ public class TCPHandler implements Runnable {
                                     System.out.println("Allocated: " + resourcesAllocated);
 
                                     assignedResourcesThisIteration = true;
-                                    writeMessageToClient(currentResourceValues[0] + ":" + temp_int + ":"
+                                    writeMessageToClient(currentResourceValues[0] + ":" + tempNum + ":"
                                             + myGateway + ":" + myPort);
-                                    currentResourceNum -= temp_int;
+                                    currentResourceNum -= tempNum;
 
                                 }
                                 //THEN ASK MY NODES
@@ -652,10 +802,10 @@ public class TCPHandler implements Runnable {
                                         int nodePort = Integer.parseInt(nodeAddress[1]);
 
                                         System.out.println("Sending request to " + nodeGateway + ":" + nodePort + " for "
-                                                + currentResourceValues[0] + ":" + temp_int);
+                                                + currentResourceValues[0] + ":" + tempNum);
                                         Socket lowerNodeSocket = new Socket(nodeGateway, nodePort);
                                         DataOutputStream outToNode = new DataOutputStream(lowerNodeSocket.getOutputStream());
-                                        outToNode.writeBytes("NCR " + currentResourceValues[0] + ":" + temp_int + "\n");
+                                        outToNode.writeBytes("NCR " + currentResourceValues[0] + ":" + tempNum + "\n");
 
                                         //WAIT FOR ANSWER THROUGH UDP
                                         DatagramSocket inFromNodeSocket = new DatagramSocket(myPort);
@@ -663,19 +813,19 @@ public class TCPHandler implements Runnable {
                                         DatagramPacket receivedPacket = new DatagramPacket(receivedData, receivedData.length);
 
                                         inFromNodeSocket.receive(receivedPacket);
-                                        String messageFromTop = new String(receivedPacket.getData(), 0, receivedData.length);
-                                        String[] messageFromNodeParts = messageFromTop.split(" ");
+                                        String messageFromNode = new String(receivedPacket.getData(), 0, receivedData.length);
+                                        String[] messageFromNodeParts = messageFromNode.split(" ");
                                         String nodeFlag = messageFromNodeParts[0];
                                         inFromNodeSocket.close();
 
-                                        System.out.println(messageFromTop);
+                                        System.out.println(messageFromNode);
 
                                         if (nodeFlag.equals("NRA")) {
 
                                             assignedResourcesThisIteration = true;
-                                            writeMessageToClient(currentResourceValues[0] + ":" + temp_int + ":"
+                                            writeMessageToClient(currentResourceValues[0] + ":" + tempNum + ":"
                                                                     + nodeGateway + ":" + nodePort);
-                                            currentResourceNum -= temp_int;
+                                            currentResourceNum -= tempNum;
 
                                             for(Map.Entry<String, Integer> e1 : resourcesToAllocateWithinMe.entrySet())
                                                 for (Map.Entry<String, Integer> e2 : resourcesInAndUnderMe.entrySet())
@@ -686,9 +836,9 @@ public class TCPHandler implements Runnable {
                                         else if(nodeFlag.equals("NRA_R")) {
 
                                             assignedResourcesThisIteration = true;
-                                            writeMessageToClient(currentResourceValues[0] + ":" + temp_int + ":"
+                                            writeMessageToClient(currentResourceValues[0] + ":" + tempNum + ":"
                                                                     + messageFromNodeParts[1] + ":" + messageFromNodeParts[2]);
-                                            currentResourceNum -= temp_int;
+                                            currentResourceNum -= tempNum;
 
                                             for(Map.Entry<String, Integer> e1 : resourcesToAllocateWithinMe.entrySet())
                                                 for (Map.Entry<String, Integer> e2 : resourcesInAndUnderMe.entrySet())
@@ -702,10 +852,11 @@ public class TCPHandler implements Runnable {
                                 }
 
                                 if(!assignedResourcesThisIteration)
-                                    temp_int--;
+                                    tempNum--;
 
-                                if(temp_int < 1)
-                                    temp_int = 1;
+                                //TODO DEBUG I GUESS
+                                if(tempNum < 1)
+                                    tempNum = 1;
 
                             }
 
@@ -715,37 +866,61 @@ public class TCPHandler implements Runnable {
                     //IF WE DON'T, ASK THE TOP NODE IF THE SYSTEM HAS ENOUGH
                     else {
 
+                        //IF THIS IS NOT THE TOP, SEND A FLAG TO YOUR UPPER NODE AND AWAIT RESPONSE
                         if(!isThisTheTopNode()) {
 
                             String resourceList = mapToSingleLine(resourcesToAllocate);
 
+                            int customPort = 5000;
                             Socket nodeUpperSocket = new Socket(upperNodeGateway, upperNodePort);
                             DataOutputStream outToNode = new DataOutputStream(nodeUpperSocket.getOutputStream());
-                            outToNode.writeBytes("NRTT " + myGateway + " " + myPort + " " + resourceList + "\n");
+                            outToNode.writeBytes("NRU " + myGateway + " " + customPort + " " + resourceList + "\n");
                             outToNode.close();
                             nodeUpperSocket.close();
 
-                            DatagramSocket inFromNodeSocket = new DatagramSocket(myPort);
-                            byte[] receivedData = new byte[1024];
+                            System.out.println("NRU " + myGateway + " " + customPort + " " + resourceList);
+
+                            DatagramSocket inFromNodeSocket = new DatagramSocket(customPort);
+                            byte[] receivedData = new byte[32768];
                             DatagramPacket receivedPacket = new DatagramPacket(receivedData, receivedData.length);
 
                             inFromNodeSocket.receive(receivedPacket);
                             String messageFromTop = new String(receivedPacket.getData(), 0, receivedData.length);
-                            String nodeFlag = (messageFromTop.split(" "))[0];
+                            String[] messageFromTopFragments = messageFromTop.split(" ");
+                            String nodeFlag = messageFromTopFragments[0];
                             inFromNodeSocket.close();
 
                             System.out.println(messageFromTop);
 
+                            if(nodeFlag.equals("NRA")) {
+
+                                writeMessageToClient("ALLOCATED");
+
+                                for(int i = 1; i < messageFromTopFragments.length - 1; i++) {
+                                    System.out.println(messageFromTopFragments[i]);
+                                    writeMessageToClient(messageFromTopFragments[i]);
+                                }
+
+                            }
+                            else if(nodeFlag.equals("NRF")) {
+
+                                System.out.println("Not Enough Resources To Allocate: " + mapToSingleLine(resourcesToAllocate));
+                                writeMessageToClient("FAILED");
+
+                            }
+                            else
+                                System.err.println("Unknown Flag");
+
+
 
                         }
+                        //IF THIS IS THE TOP (AND DOES NOT HAVE ENOUGH RESOURCES IN THE SYSTEM) DON'T ALLOCATE ANY RESOURCES AND NOTIFY CLIENT
+                        else {
 
+                            System.out.println("Not Enough Resources To Allocate: " + mapToSingleLine(resourcesToAllocate));
+                            writeMessageToClient("FAILED");
 
-
-
-
-                        //IF NOT, TELL THE CLIENT THAT THE REQUEST COULD NOT BE PROCESSED
-                        //System.out.println("Could Not Allocate: " + mapToSingleLine(resourcesToAllocate));
-                        //writeMessageToClient("FAILED");
+                        }
 
                     }
 

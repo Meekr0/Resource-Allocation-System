@@ -11,9 +11,13 @@ import java.util.concurrent.Executors;
 
 public class NetworkNode {
 
-    //TODO SEARCH IN THE UPPER NODES
+    //TODO CUSTOM PORT (OBECNIE 5000) - GDYBY BYL ZAJĘTY, WYBIERZ INNY (wolny)
+    //TODO FIX CONSOLE TRASH
     //TODO REMOVE LEGACY CODE
     //TODO WRITE DOCUMENTATION :))))
+    //TODO TEST
+    //TODO RENAME VARIABLES (MSGFROMTOP) ETC
+    //TODO ZAMYKANIE SOCKETÓW
 
     public static void main(String[] args) {
 
@@ -25,7 +29,7 @@ public class NetworkNode {
 
         List<String> nodesUnderMeList = new ArrayList<>();
 
-        int threadsNum = 10;
+        int threadsNum = 256;
 
         boolean isFirstNode = true;
 
