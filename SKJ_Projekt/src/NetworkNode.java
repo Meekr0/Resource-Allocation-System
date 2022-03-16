@@ -11,14 +11,6 @@ import java.util.concurrent.Executors;
 
 public class NetworkNode {
 
-    //TODO CUSTOM PORT (OBECNIE 5000) - GDYBY BYL ZAJĘTY, WYBIERZ INNY (wolny)
-    //TODO FIX CONSOLE TRASH
-    //TODO REMOVE LEGACY CODE
-    //TODO WRITE DOCUMENTATION :))))
-    //TODO TEST
-    //TODO RENAME VARIABLES (MSGFROMTOP) ETC
-    //TODO ZAMYKANIE SOCKETÓW
-
     public static void main(String[] args) {
 
         String identifier = null;
